@@ -1,643 +1,317 @@
-// @ts-nocheck
-import {
-  get,
-  onDisconnect,
-  onValue,
-  ref,
-  remove,
-  runTransaction,
-  set,
-  update,
-} from "firebase/database";
-import React, { useEffect, useMemo, useState } from "react";
-import {
-  Modal,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from "react-native";
-import { getDb } from "../../firebase";
+import React from 'react';
+import { Link } from 'expo-router';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-/** ================= Utils ================= */
+import { ThemedText } from '@/components/themed-text';
+import { Fonts } from '@/constants/theme';
+import { useColorScheme } from '@/hooks/use-color-scheme';
 
-function rand4Digits() {
-  // 1000-9999
-  return String(Math.floor(1000 + Math.random() * 9000));
-}
+const games = [
+  {
+    id: 'guess-number',
+    title: '联机猜数',
+    badge: '1A2B',
+    desc: '双人对战猜对方密数，逻辑与节奏并重。',
+    meta: ['1-2人', '对战', '逻辑'],
+    href: '/guess-number',
+  },
+];
 
-function isDigits(str: string, len: number) {
-  return new RegExp(`^\\d{${len}}$`).test(str);
-}
+const merge = (...styles: any[]) => StyleSheet.flatten(styles);
 
-function hitsCount(secret: string, guess: string) {
-  let hits = 0;
-  for (let i = 0; i < secret.length; i++) {
-    if(secret[i] == guess[i]){
-      hits++
-    }
-  }
-  return hits;
-}
-
-/** ================= UI ================= */
-
-function Btn({ title, onPress, disabled, kind, small }: any) {
-  return (
-    <TouchableOpacity
-      disabled={disabled}
-      onPress={onPress}
-      style={[
-        styles.btn,
-        small && styles.btnSmall,
-        kind === "danger" && styles.btnDanger,
-        kind === "ghost" && styles.btnGhost,
-        disabled && styles.btnDis,
-      ]}
-    >
-      <Text style={[styles.btnText, kind === "ghost" && styles.btnTextGhost]}>
-        {title}
-      </Text>
-    </TouchableOpacity>
-  );
-}
-
-function ChoiceBtn({ title, onPress, active }: any) {
-  return (
-    <TouchableOpacity
-      onPress={onPress}
-      style={[styles.choiceBtn, active && styles.choiceBtnActive]}
-    >
-      <Text style={[styles.choiceText, active && styles.choiceTextActive]}>
-        {title}
-      </Text>
-    </TouchableOpacity>
-  );
-}
-
-/** ================= Main ================= */
-
-export default function GuessNumber() {
-  const [roomId, setRoomId] = useState("");
-  const [joinId, setJoinId] = useState("");
-  const [me, setMe] = useState<"A" | "B" | "">("");
-  const [room, setRoom] = useState<any>(null);
-
-  const [secret, setSecret] = useState("");
-  const [guess, setGuess] = useState("");
-
-  // 弹框
-  const [digitsModal, setDigitsModal] = useState(false);
-  const [starterModal, setStarterModal] = useState(false);
-
-  const isHost = me === "A";
-  const digits = room?.digits ?? 4;
-  const starter = room?.starter ?? "A";
-  const guesses = room?.guesses ?? [];
-
-  const myTurn = useMemo(
-    () => room?.status === "playing" && room?.turn === me,
-    [room, me]
-  );
-
-  const canHostConfigure =
-    isHost && (room?.status === "configuring" || room?.status === "over");
-
-  function resetLocal() {
-    setRoomId("");
-    setJoinId("");
-    setMe("");
-    setRoom(null);
-    setSecret("");
-    setGuess("");
-    setDigitsModal(false);
-    setStarterModal(false);
-  }
-
-  /** -------- 监听房间 -------- */
-  useEffect(() => {
-    if (!roomId) return;
-    const db = getDb();
-    if (!db) return;
-
-    const r = ref(db, `rooms/${roomId}`);
-    return onValue(r, (snap) => {
-      const v = snap.val();
-      if (!v) {
-        setRoom(null);
-        return;
-      }
-      // 兼容旧数据
-      if (!Array.isArray(v.guesses)) v.guesses = [];
-      if (v?.players?.A && v.players.A.left == null) v.players.A.left = false;
-      if (v?.players?.B && v.players.B.left == null) v.players.B.left = true; // 未进入默认 true
-      setRoom(v);
-    });
-  }, [roomId]);
-
-  /** -------- 断线自动离开（关键） -------- */
-  useEffect(() => {
-    if (!roomId || !me) return;
-    const db = getDb();
-    if (!db) return;
-
-    const myRef = ref(db, `rooms/${roomId}/players/${me}`);
-
-    // 断线/崩溃/关页面：自动 left
-    onDisconnect(myRef).update({ left: true, secret: "" });
-
-    // 进入即标记在线
-    update(myRef, { left: false });
-
-    // 注意：onDisconnect 不需要 cleanup
-  }, [roomId, me]);
-
-  /** -------- 双方离开 => 自动删房 -------- */
-  useEffect(() => {
-    if (!roomId || !room) return;
-    const aLeft = !!room?.players?.A?.left;
-    const bLeft = !!room?.players?.B?.left;
-
-    if (aLeft && bLeft) {
-      const db = getDb();
-      if (db) remove(ref(db, `rooms/${roomId}`)).catch(() => {});
-      resetLocal();
-    }
-  }, [roomId, room]);
-
-  /** ================== Actions ================== */
-
-  /** 创建房间：4位数字+避碰撞 */
-  async function createRoom() {
-    const db = getDb();
-    if (!db) return;
-
-    let id = "";
-    for (let i = 0; i < 30; i++) {
-      const c = rand4Digits();
-      const snap = await get(ref(db, `rooms/${c}`));
-      if (!snap.exists()) {
-        id = c;
-        break;
-      }
-    }
-    if (!id) {
-      alert("房间号生成失败");
-      return;
-    }
-
-    await set(ref(db, `rooms/${id}`), {
-      status: "configuring",
-      digits: 4,
-      starter: "A",
-      turn: "",
-      winner: "",
-      round: 1,
-      createdAt: Date.now(),
-      players: {
-        A: { secret: "", left: false },
-        // ✅ 修复点1：B 未进入，默认 left=true
-        B: { secret: "", left: true },
-      },
-      guesses: [],
-    });
-
-    setRoomId(id);
-    setMe("A");
-  }
-
-  /** 加入房间：原子占位B（防多人/重复进入） */
-  async function joinRoom() {
-    const db = getDb();
-    if (!db) return;
-
-    const id = joinId.trim();
-    if (!/^\d{4}$/.test(id)) {
-      alert("房间号必须是4位数字");
-      return;
-    }
-
-    // 先确认房间存在
-    const roomSnap = await get(ref(db, `rooms/${id}`));
-    if (!roomSnap.exists()) {
-      alert("房间不存在");
-      return;
-    }
-
-    // ✅ 修复点2：用 transaction 抢占 B
-    const res = await runTransaction(
-      ref(db, `rooms/${id}/players/B`),
-      (cur) => {
-        // 已被占用且在线（left=false） -> 拒绝
-        if (cur && cur.left === false) return;
-        // 否则占位成功
-        return { secret: "", left: false, joinedAt: Date.now() };
-      },
-      { applyLocally: false }
-    );
-
-    if (!res.committed) {
-      alert("房间已满（B 已被占用）");
-      return;
-    }
-
-    setRoomId(id);
-    setMe("B");
-  }
-
-  /** 仅设置自己的密数（明文只显示自己） */
-  async function confirmSecret() {
-    const db = getDb();
-    if (!db || !roomId || !me) return;
-
-    if (!isDigits(secret, digits)) {
-      alert(`密数必须是 ${digits} 位数字`);
-      return;
-    }
-
-    await update(ref(db, `rooms/${roomId}/players/${me}`), {
-      secret,
-      left: false,
-    });
-  }
-
-  /** 房主：设置位数（弹框） */
-  async function applyDigits(n: number) {
-    const db = getDb();
-    if (!db || !isHost) return;
-    await update(ref(db, `rooms/${roomId}`), { digits: n });
-    setDigitsModal(false);
-  }
-
-  /** 房主：设置先手（弹框） */
-  async function applyStarter(s: "A" | "B") {
-    const db = getDb();
-    if (!db || !isHost) return;
-    await update(ref(db, `rooms/${roomId}`), { starter: s });
-    setStarterModal(false);
-  }
-
-  /** 房主：开始本轮 */
-  async function startRound() {
-    const db = getDb();
-    if (!db || !isHost) return;
-
-    const a = room?.players?.A?.secret || "";
-    const b = room?.players?.B?.secret || "";
-
-    // 如果 B 根本没加入，b 会是 ""，自然无法开始
-    if (!isDigits(a, digits) || !isDigits(b, digits)) {
-      alert("双方必须先设置好本轮密数（B 需要先加入并设置）");
-      return;
-    }
-
-    await update(ref(db, `rooms/${roomId}`), {
-      status: "playing",
-      turn: starter,
-      winner: "",
-    });
-  }
-
-  /** 提交猜测：transaction 追加历史，避免并发覆盖 */
-  async function submitGuess() {
-    const db = getDb();
-    if (!db || !myTurn) return;
-
-    if (!isDigits(guess, digits)) {
-      alert(`猜测必须是 ${digits} 位数字`);
-      return;
-    }
-
-    const opp = me === "A" ? "B" : "A";
-    const oppSecret = room?.players?.[opp]?.secret || "";
-    if (!oppSecret) {
-      alert("对方还没设置密数");
-      return;
-    }
-
-    const hits = hitsCount(oppSecret, guess);
-    const record = { by: me, guess, hits, at: Date.now(), round: room?.round || 1 };
-
-    await runTransaction(ref(db, `rooms/${roomId}/guesses`), (cur) => {
-      const arr = Array.isArray(cur) ? cur : [];
-      arr.push(record);
-      return arr;
-    });
-
-    if (guess === oppSecret) {
-      await update(ref(db, `rooms/${roomId}`), {
-        status: "over",
-        winner: me,
-      });
-      return;
-    }
-
-    await update(ref(db, `rooms/${roomId}`), { turn: opp });
-    setGuess("");
-  }
-
-  /** 结束后重开新一轮 */
-  async function restartNewRound() {
-    const db = getDb();
-    if (!db || !roomId) return;
-
-    await runTransaction(ref(db, `rooms/${roomId}`), (cur) => {
-      if (!cur) return cur;
-
-      const nextRound = (cur.round || 1) + 1;
-      cur.status = "configuring";
-      cur.turn = "";
-      cur.winner = "";
-      cur.guesses = [];
-      cur.round = nextRound;
-
-      // 强制重新设密数（公平）
-      if (cur.players?.A) cur.players.A.secret = "";
-      if (cur.players?.B) cur.players.B.secret = "";
-
-      // left 不改：离开的还是离开
-      return cur;
-    });
-
-    setSecret("");
-    setGuess("");
-  }
-
-  /** 退房：标记 left=true；监听会处理删房 */
-  async function leaveRoom() {
-    const db = getDb();
-    if (!db || !roomId || !me) {
-      resetLocal();
-      return;
-    }
-
-    await update(ref(db, `rooms/${roomId}/players/${me}`), {
-      left: true,
-      secret: "",
-    });
-
-    resetLocal();
-  }
-
-  /** ================== Render ================== */
+export default function LobbyScreen() {
+  const colorScheme = useColorScheme();
+  const palette =
+    colorScheme === 'dark'
+      ? {
+          background: '#101114',
+          cardBg: '#1b1c22',
+          cardBorder: '#2a2b33',
+          textMuted: '#b3b6bf',
+          glowA: 'rgba(251,191,36,0.18)',
+          glowB: 'rgba(251,113,133,0.16)',
+          pillBg: 'rgba(255,255,255,0.06)',
+          pillBorder: 'rgba(255,255,255,0.2)',
+          pillText: '#e5e7eb',
+          badgeBg: 'rgba(251,191,36,0.15)',
+          badgeBorder: 'rgba(251,191,36,0.45)',
+          badgeText: '#fbbf24',
+          metaBg: 'rgba(255,255,255,0.05)',
+          metaBorder: 'rgba(255,255,255,0.12)',
+          buttonBg: '#fbbf24',
+          buttonBorder: '#f59e0b',
+        }
+      : {
+          background: '#f6efe6',
+          cardBg: '#fff9f2',
+          cardBorder: '#f2d9bf',
+          textMuted: '#6f6457',
+          glowA: 'rgba(246,191,65,0.3)',
+          glowB: 'rgba(239,143,130,0.25)',
+          pillBg: 'rgba(255,255,255,0.7)',
+          pillBorder: '#f1c99c',
+          pillText: '#7a5b3a',
+          badgeBg: 'rgba(251,191,36,0.2)',
+          badgeBorder: '#e0962d',
+          badgeText: '#a35617',
+          metaBg: 'rgba(255,255,255,0.7)',
+          metaBorder: '#f1c99c',
+          buttonBg: '#f59e0b',
+          buttonBorder: '#e07a10',
+        };
 
   return (
-    <ScrollView style={styles.root}>
-      <Text style={styles.title}>联机猜数</Text>
+    <View style={merge(styles.root, { backgroundColor: palette.background })}>
+      <View
+        pointerEvents="none"
+        style={merge(styles.glow, styles.glowA, { backgroundColor: palette.glowA })}
+      />
+      <View
+        pointerEvents="none"
+        style={merge(styles.glow, styles.glowB, { backgroundColor: palette.glowB })}
+      />
 
-      {!roomId && (
-        <View style={styles.card}>
-          <Btn title="创建房间（4位数字）" onPress={createRoom} />
-          <TextInput
-            style={styles.input}
-            placeholder="输入4位房间号加入"
-            value={joinId}
-            onChangeText={setJoinId}
-            keyboardType="number-pad"
-            maxLength={4}
-          />
-          <Btn title="加入房间" onPress={joinRoom} disabled={!joinId.trim()} />
+      <ScrollView contentContainerStyle={styles.content}>
+        <View style={styles.hero}>
+          <ThemedText type="title" style={merge(styles.title, { fontFamily: Fonts.rounded })}>
+            游戏大厅
+          </ThemedText>
+          <ThemedText style={merge(styles.subtitle, { color: palette.textMuted })}>
+            选择游戏进入，后续会持续扩展。
+          </ThemedText>
         </View>
-      )}
 
-      {roomId && room && (
-        <View style={styles.card}>
-          <Text style={styles.line}>房间：{roomId}</Text>
-          <Text style={styles.line}>你是：{me}</Text>
-          <Text style={styles.line}>
-            状态：{room.status}（第 {room.round || 1} 轮）
-          </Text>
-          <Text style={styles.line}>
-            本轮位数：{digits} / 先手：{starter} / 当前回合：{room.turn || "-"}
-          </Text>
+        <View style={styles.sectionHeader}>
+          <ThemedText type="subtitle" style={styles.sectionTitle}>
+            游戏列表
+          </ThemedText>
+          <View
+            style={merge(styles.pill, {
+              backgroundColor: palette.pillBg,
+              borderColor: palette.pillBorder,
+            })}
+          >
+            <Text style={merge(styles.pillText, { color: palette.pillText })}>当前 1 款可玩</Text>
+          </View>
+        </View>
 
-          <View style={styles.hr} />
-
-          {/* 只显示自己的密数 */}
-          <Text style={styles.h}>你的密数（明文，仅你可见）</Text>
-          <Text style={styles.line}>
-            {room?.players?.[me]?.secret ? room.players[me].secret : "(未设置)"}
-          </Text>
-
-          <TextInput
-            style={styles.input}
-            placeholder={`设置 ${digits} 位密数`}
-            value={secret}
-            onChangeText={setSecret}
-            keyboardType="number-pad"
-            maxLength={digits}
-          />
-          <Btn title="确认密数" onPress={confirmSecret} disabled={!secret} />
-
-          {/* 房主配置 */}
-          {canHostConfigure && (
-            <>
-              <View style={styles.hr} />
-              <Text style={styles.h}>本轮设置（房主）</Text>
-
-              <View style={styles.row}>
-                <Btn
-                  small
-                  kind="ghost"
-                  title={`位数：${digits}（点我改）`}
-                  onPress={() => setDigitsModal(true)}
-                />
-                <Btn
-                  small
-                  kind="ghost"
-                  title={`先手：${starter}（点我改）`}
-                  onPress={() => setStarterModal(true)}
-                />
+        <View style={styles.list}>
+          {games.map((game) => (
+            <View
+              key={game.id}
+              style={merge(styles.card, { backgroundColor: palette.cardBg, borderColor: palette.cardBorder })}
+            >
+              <View style={styles.cardTop}>
+                <ThemedText type="subtitle" style={styles.cardTitle}>
+                  {game.title}
+                </ThemedText>
+                <View
+                  style={merge(styles.badge, {
+                    backgroundColor: palette.badgeBg,
+                    borderColor: palette.badgeBorder,
+                  })}
+                >
+                  <Text style={merge(styles.badgeText, { color: palette.badgeText })}>{game.badge}</Text>
+                </View>
               </View>
-
-              <Btn
-                title="开始本轮"
-                onPress={startRound}
-                disabled={room.status !== "configuring"}
-              />
-
-              {room.status === "over" && (
-                <Btn title="重新开始新一轮" onPress={restartNewRound} />
-              )}
-            </>
-          )}
-
-          {/* playing：回合输入 */}
-          {room.status === "playing" && (
-            <>
-              <View style={styles.hr} />
-              <Text style={styles.h}>猜测</Text>
-              <Text style={styles.tip}>{myTurn ? "✅ 轮到你" : "⏳ 等待对方"}</Text>
-
-              <TextInput
-                style={styles.input}
-                placeholder={`输入你的猜测（${digits}位）`}
-                value={guess}
-                onChangeText={setGuess}
-                keyboardType="number-pad"
-                maxLength={digits}
-              />
-              <Btn
-                title="提交猜测"
-                onPress={submitGuess}
-                disabled={!myTurn || !guess}
-              />
-            </>
-          )}
-
-          {/* 历史 */}
-          <View style={styles.hr} />
-          <Text style={styles.h}>猜测历史</Text>
-          {guesses.length === 0 ? (
-            <Text style={styles.tip}>(暂无)</Text>
-          ) : (
-            guesses.map((g: any, i: number) => (
-              <Text key={i} style={styles.history}>
-                #{i + 1}（第{g.round || 1}轮） 玩家 {g.by} 猜 {g.guess} → 命中 {g.hits}
-              </Text>
-            ))
-          )}
-
-          {/* 结束 */}
-          {room.status === "over" && (
-            <>
-              <View style={styles.hr} />
-              <Text style={styles.win}>🏆 胜者：{room.winner}</Text>
-              {!canHostConfigure && (
-                <Btn title="重新开始新一轮" onPress={restartNewRound} />
-              )}
-            </>
-          )}
-
-          <View style={styles.hr} />
-          <Btn title="退房间" kind="danger" onPress={leaveRoom} />
-          <Text style={styles.tip}>
-            B 未加入时默认 left=true；加入房间使用原子占位，房间满会加入失败；断线会自动 left=true；
-            当 A 和 B 都离开时会自动删除房间。
-          </Text>
-        </View>
-      )}
-
-      {/* 位数弹框 */}
-      <Modal
-        transparent
-        visible={digitsModal}
-        animationType="fade"
-        onRequestClose={() => setDigitsModal(false)}
-      >
-        <View style={styles.modalMask}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>选择本轮位数</Text>
-            <View style={styles.choiceGrid}>
-              {[2, 3, 4, 5, 6, 7, 8].map((n) => (
-                <ChoiceBtn
-                  key={n}
-                  title={`${n} 位`}
-                  active={digits === n}
-                  onPress={() => applyDigits(n)}
-                />
-              ))}
+              <ThemedText style={merge(styles.cardDesc, { color: palette.textMuted })}>{game.desc}</ThemedText>
+              <View style={styles.metaRow}>
+                {game.meta.map((item) => (
+                  <View
+                    key={item}
+                    style={merge(styles.metaTag, {
+                      backgroundColor: palette.metaBg,
+                      borderColor: palette.metaBorder,
+                    })}
+                  >
+                    <Text style={merge(styles.metaText, { color: palette.textMuted })}>{item}</Text>
+                  </View>
+                ))}
+              </View>
+              <Link href={game.href} asChild>
+                <TouchableOpacity
+                  style={merge(styles.enterBtn, {
+                    backgroundColor: palette.buttonBg,
+                    borderColor: palette.buttonBorder,
+                  })}
+                >
+                  <Text style={styles.enterText}>进入游戏</Text>
+                </TouchableOpacity>
+              </Link>
             </View>
-            <Btn title="取消" kind="ghost" onPress={() => setDigitsModal(false)} />
+          ))}
+
+          <View
+            style={merge(
+              styles.card,
+              styles.cardMuted,
+              { backgroundColor: palette.cardBg, borderColor: palette.cardBorder }
+            )}
+          >
+            <View style={styles.cardTop}>
+              <ThemedText type="subtitle" style={styles.cardTitle}>
+                更多游戏
+              </ThemedText>
+              <View
+                style={merge(styles.badge, {
+                  backgroundColor: palette.metaBg,
+                  borderColor: palette.metaBorder,
+                })}
+              >
+                <Text style={merge(styles.badgeText, { color: palette.textMuted })}>Coming</Text>
+              </View>
+            </View>
+            <ThemedText style={merge(styles.cardDesc, { color: palette.textMuted })}>
+              新玩法正在制作中，欢迎提出想法。
+            </ThemedText>
+            <View style={styles.metaRow}>
+              <View
+                style={merge(styles.metaTag, {
+                  backgroundColor: palette.metaBg,
+                  borderColor: palette.metaBorder,
+                })}
+              >
+                <Text style={merge(styles.metaText, { color: palette.textMuted })}>扩展位</Text>
+              </View>
+              <View
+                style={merge(styles.metaTag, {
+                  backgroundColor: palette.metaBg,
+                  borderColor: palette.metaBorder,
+                })}
+              >
+                <Text style={merge(styles.metaText, { color: palette.textMuted })}>待上线</Text>
+              </View>
+            </View>
+            <View
+              style={merge(
+                styles.enterBtn,
+                styles.enterBtnDisabled,
+                { backgroundColor: palette.metaBg, borderColor: palette.metaBorder }
+              )}
+            >
+              <Text style={merge(styles.enterText, { color: palette.textMuted })}>即将开放</Text>
+            </View>
           </View>
         </View>
-      </Modal>
-
-      {/* 先手弹框 */}
-      <Modal
-        transparent
-        visible={starterModal}
-        animationType="fade"
-        onRequestClose={() => setStarterModal(false)}
-      >
-        <View style={styles.modalMask}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>选择本轮先手</Text>
-            <View style={styles.choiceRow}>
-              <ChoiceBtn
-                title="A 先"
-                active={starter === "A"}
-                onPress={() => applyStarter("A")}
-              />
-              <ChoiceBtn
-                title="B 先"
-                active={starter === "B"}
-                onPress={() => applyStarter("B")}
-              />
-            </View>
-            <Btn title="取消" kind="ghost" onPress={() => setStarterModal(false)} />
-          </View>
-        </View>
-      </Modal>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
-
-/** ================= Styles ================= */
 
 const styles = StyleSheet.create({
-  root: { backgroundColor: "#111", padding: 16, flex: 1 },
-  title: { color: "#fff", fontSize: 20, fontWeight: "800", marginBottom: 12 },
-  card: { backgroundColor: "#1b1b1b", padding: 14, borderRadius: 12, gap: 10 },
-  input: {
-    backgroundColor: "#2a2a2a",
-    color: "#fff",
-    padding: 10,
-    borderRadius: 8,
-  },
-  btn: { backgroundColor: "#2563eb", padding: 12, borderRadius: 10 },
-  btnSmall: { paddingVertical: 10, paddingHorizontal: 12, flex: 1 },
-  btnDanger: { backgroundColor: "#dc2626" },
-  btnGhost: { backgroundColor: "#2a2a2a", borderWidth: 1, borderColor: "#3a3a3a" },
-  btnDis: { opacity: 0.4 },
-  btnText: { color: "#fff", fontWeight: "700", textAlign: "center" },
-  btnTextGhost: { color: "#ddd" },
-
-  line: { color: "#ddd" },
-  h: { color: "#fff", fontWeight: "700", marginTop: 6 },
-  tip: { color: "#aaa" },
-  history: { color: "#ccc" },
-  win: { color: "#7CFF9A", fontSize: 18, fontWeight: "800" },
-  hr: { height: 1, backgroundColor: "#333", marginVertical: 8 },
-  row: { flexDirection: "row", gap: 10 },
-
-  modalMask: {
+  root: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.55)",
-    alignItems: "center",
-    justifyContent: "center",
+  },
+  glow: {
+    position: 'absolute',
+    width: 320,
+    height: 320,
+    borderRadius: 200,
+    opacity: 0.9,
+  },
+  glowA: {
+    top: -120,
+    left: -80,
+  },
+  glowB: {
+    bottom: -140,
+    right: -120,
+  },
+  content: {
+    padding: 20,
+    paddingBottom: 40,
+  },
+  hero: {
+    marginBottom: 22,
+    gap: 6,
+  },
+  title: {},
+  subtitle: {
+    fontSize: 16,
+    lineHeight: 24,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  sectionTitle: {
+    fontSize: 20,
+  },
+  pill: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  pillText: {
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+  },
+  list: {
+    gap: 16,
+  },
+  card: {
+    borderRadius: 18,
+    borderWidth: 1,
     padding: 16,
   },
-  modalCard: {
-    width: "100%",
-    maxWidth: 420,
-    backgroundColor: "#1b1b1b",
-    borderRadius: 14,
-    padding: 14,
+  cardMuted: {
+    opacity: 0.6,
+  },
+  cardTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  cardTitle: {
+    fontSize: 18,
+  },
+  badge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: "#2a2a2a",
-    gap: 12,
   },
-  modalTitle: { color: "#fff", fontWeight: "800", fontSize: 16 },
-  choiceGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  choiceRow: { flexDirection: "row", gap: 10 },
-
-  choiceBtn: {
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    backgroundColor: "#2a2a2a",
+  badgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 1,
+  },
+  cardDesc: {
+    marginTop: 10,
+    marginBottom: 12,
+    lineHeight: 22,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 16,
+  },
+  metaTag: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     borderWidth: 1,
-    borderColor: "#3a3a3a",
-    minWidth: 78,
-    alignItems: "center",
   },
-  choiceBtnActive: {
-    backgroundColor: "#2563eb",
-    borderColor: "#2563eb",
+  metaText: {
+    fontSize: 12,
   },
-  choiceText: { color: "#ddd", fontWeight: "700" },
-  choiceTextActive: { color: "#fff" },
+  enterBtn: {
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+  },
+  enterBtnDisabled: {
+    opacity: 0.5,
+  },
+  enterText: {
+    color: '#1a1308',
+    fontWeight: '700',
+    fontSize: 14,
+  },
 });
