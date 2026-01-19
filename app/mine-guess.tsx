@@ -398,9 +398,12 @@ export default function MineGuessScreen() {
   /**
    * Update the current PK field for this player.
    */
-  const updatePkField = (patch: any) => {
-    if (!pkSide) return;
-    updateRoom({ fields: { ...pkFields, [pkSide]: { ...pkMyField, ...patch } } });
+  const updatePkField = async (patch: any) => {
+    if (!pkSide || !roomId) return;
+    const db = getDb();
+    if (!db) return;
+    await update(ref(db, `mineRooms/${roomId}/fields/${pkSide}`), { ...pkMyField, ...patch });
+    await update(ref(db, `mineRooms/${roomId}`), { lastActive: Date.now() });
   };
 
   /**

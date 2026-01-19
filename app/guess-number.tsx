@@ -27,6 +27,7 @@ import { getDb } from "@/firebase";
 const ROOM_TTL_MS = 1000 * 60 * 30;
 const ROOM_HARD_TTL_MS = 1000 * 60 * 120;
 const HEARTBEAT_MS = 1000 * 30;
+const CLEANUP_INTERVAL_MS = 1000 * 60;
 
 const HELP_TEXT = "目标：猜中对方密数。\n\n规则：\n- 创建房间后分享 4 位房间号，另一位加入。\n- 双方设置密数后开始对局，轮流猜测对方密数。\n- 猜中即胜，未加入无法开始。";
 
@@ -161,14 +162,14 @@ export default function GuessNumber() {
     });
   }, [roomId]);
 
-  /** -------- 清理长时间闲置房间 -------- */
+    /** -------- 清理长时间闲置房间 -------- */
   useEffect(() => {
     const db = getDb();
     if (!db) return;
 
     const run = async () => {
       try {
-        const snap = await get(ref(db, "rooms"));
+        const snap = await get(ref(db, 'rooms'));
         const rooms = snap.val();
         if (!rooms) return;
         const now = Date.now();
@@ -179,7 +180,7 @@ export default function GuessNumber() {
             const age = now - last;
             const aLeft = v?.players?.A?.left ?? true;
             const bLeft = v?.players?.B?.left ?? true;
-            if ((age > ROOM_TTL_MS && aLeft && bLeft) || age > ROOM_HARD_TTL_MS) {
+            if ((aLeft && bLeft) || (age > ROOM_TTL_MS && aLeft && bLeft) || age > ROOM_HARD_TTL_MS) {
               await remove(ref(db, `rooms/${id}`));
             }
           })
@@ -190,6 +191,8 @@ export default function GuessNumber() {
     };
 
     run();
+    const timer = setInterval(run, CLEANUP_INTERVAL_MS);
+    return () => clearInterval(timer);
   }, []);
 
   /** -------- 断线自动离开（关键） -------- */
