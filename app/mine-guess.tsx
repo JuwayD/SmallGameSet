@@ -28,14 +28,23 @@ const MAX_FLAGS = 100;
 const MIN_GRID = 4;
 const MAX_GRID = 12;
 
+/**
+ * Merge style arrays to avoid web style bugs.
+ */
 const merge = (...styles: any[]) => StyleSheet.flatten(styles);
 
+/**
+ * Clamp a numeric input extracted from a string.
+ */
 function clampNumber(value: string, min: number, max: number, fallback: number) {
   const n = Number(value.replace(/\D/g, ''));
   if (!Number.isFinite(n)) return fallback;
   return Math.max(min, Math.min(max, n));
 }
 
+/**
+ * Screen component for the mine-guess game.
+ */
 export default function MineGuessScreen() {
   const navigation = useNavigation();
   const [helpVisible, setHelpVisible] = useState(false);
@@ -122,18 +131,27 @@ export default function MineGuessScreen() {
     return room?.result || '本轮结束。';
   }, [roomId, status, me, room, isPk, pkSide, pkTurn, pkMyField]);
 
+  /**
+   * Open grid-size modal with current values.
+   */
   const openGridModal = () => {
     setGridWidthDraft(String(displayGridWidth));
     setGridHeightDraft(String(displayGridHeight));
     setGridModalVisible(true);
   };
 
+  /**
+   * Apply grid-size changes from modal.
+   */
   const confirmGridModal = () => {
     handleGridWidth(gridWidthDraft);
     handleGridHeight(gridHeightDraft);
     setGridModalVisible(false);
   };
 
+  /**
+   * Reset local state when leaving or cleanup happens.
+   */
   function resetLocal() {
     setRoomId('');
     setJoinId('');
@@ -234,6 +252,9 @@ export default function MineGuessScreen() {
     updateRoom({ status: 'playing', guessed: { A: [], B: [] }, result: '', turn: 'A' });
   }, [roomId, room, me]);
 
+  /**
+   * Create a new room with mode-specific defaults.
+   */
   async function createRoom() {
     if (!me) {
       alert('请先选择身份');
@@ -291,6 +312,9 @@ export default function MineGuessScreen() {
     setMe(me);
   }
 
+  /**
+   * Join an existing room with the chosen role.
+   */
   async function joinRoom() {
     const db = getDb();
     if (!db) return;
@@ -338,6 +362,9 @@ export default function MineGuessScreen() {
     setMe(me);
   }
 
+  /**
+   * Leave the room and cleanup presence.
+   */
   async function leaveRoom() {
     const db = getDb();
     if (!db || !roomId || !me) {
@@ -355,6 +382,9 @@ export default function MineGuessScreen() {
     resetLocal();
   }
 
+  /**
+   * Update room data and refresh lastActive.
+   */
   async function updateRoom(patch: any) {
     const db = getDb();
     if (!db || !roomId) return;
@@ -365,11 +395,17 @@ export default function MineGuessScreen() {
   const canConfigurePk = isPk && status === 'setup' && pkSide && !pkMyField.confirmed;
   const canConfigure = isHouse ? canConfigureHouse : canConfigurePk;
 
+  /**
+   * Update the current PK field for this player.
+   */
   const updatePkField = (patch: any) => {
     if (!pkSide) return;
     updateRoom({ fields: { ...pkFields, [pkSide]: { ...pkMyField, ...patch } } });
   };
 
+  /**
+   * Update grid width with bounds checking.
+   */
   const handleGridWidth = (value: string) => {
     if (isHouse) {
       if (!canConfigureHouse) return;
@@ -382,6 +418,9 @@ export default function MineGuessScreen() {
     updatePkField({ gridWidth: next, flags: [], confirmed: false });
   };
 
+  /**
+   * Update grid height with bounds checking.
+   */
   const handleGridHeight = (value: string) => {
     if (isHouse) {
       if (!canConfigureHouse) return;
@@ -394,18 +433,27 @@ export default function MineGuessScreen() {
     updatePkField({ gridHeight: next, flags: [], confirmed: false });
   };
 
+  /**
+   * Update entry fee for the room.
+   */
   const handleEntryFee = (value: string) => {
     if (isHouse && !canConfigureHouse) return;
     if (isPk && (!pkSide || status !== 'setup')) return;
     updateRoom({ entryFee: clampNumber(value, 0, 999, entryFee) });
   };
 
+  /**
+   * Update hit score for the room.
+   */
   const handleHitScore = (value: string) => {
     if (isHouse && !canConfigureHouse) return;
     if (isPk && (!pkSide || status !== 'setup')) return;
     updateRoom({ hitScore: clampNumber(value, 0, 999, hitScore) });
   };
 
+  /**
+   * Handle clicks in house mode for host/player.
+   */
   const handleHouseCellPress = (x: number, y: number) => {
     if (!roomId) return;
     const key = `${x}-${y}`;
@@ -477,6 +525,9 @@ export default function MineGuessScreen() {
     });
   };
 
+  /**
+   * Handle clicks in PK mode for setup/guessing.
+   */
   const handlePkCellPress = (x: number, y: number) => {
     if (!roomId || !pkSide) return;
     const key = `${x}-${y}`;
@@ -560,6 +611,9 @@ export default function MineGuessScreen() {
     });
   };
 
+  /**
+   * Dispatch grid clicks to the active mode handler.
+   */
   const handleCellPress = (x: number, y: number) => {
     if (isPk) {
       handlePkCellPress(x, y);
@@ -568,6 +622,9 @@ export default function MineGuessScreen() {
     handleHouseCellPress(x, y);
   };
 
+  /**
+   * Start a house-mode round after validation.
+   */
   const startRound = () => {
     if (!canConfigureHouse) return;
     const mineCount = flags.filter((f: any) => f.mine).length;
@@ -586,6 +643,9 @@ export default function MineGuessScreen() {
     updateRoom({ status: 'playing', guessed: [], scores: nextScores, result: '' });
   };
 
+  /**
+   * Reset house-mode round data.
+   */
   const resetRound = () => {
     if (!isHost) return;
     updateRoom({
@@ -597,6 +657,9 @@ export default function MineGuessScreen() {
     });
   };
 
+  /**
+   * Confirm PK field setup after validation.
+   */
   const confirmPkField = () => {
     if (!canConfigurePk) return;
     const mineCount = pkMyField.flags.filter((f: any) => f.mine).length;
@@ -611,11 +674,17 @@ export default function MineGuessScreen() {
     updatePkField({ confirmed: true });
   };
 
+  /**
+   * Clear PK field to allow re-setup.
+   */
   const resetPkField = () => {
     if (!pkSide || status !== 'setup') return;
     updatePkField({ flags: [], confirmed: false });
   };
 
+  /**
+   * Reset PK round and return to setup state.
+   */
   const resetPkRound = () => {
     if (!pkSide) return;
     updateRoom({
@@ -632,6 +701,9 @@ export default function MineGuessScreen() {
     });
   };
 
+  /**
+   * Render a single grid cell with state colors.
+   */
   const renderCell = (x: number, y: number) => {
     const key = `${x}-${y}`;
     const flag = displayFlags.find((f: any) => f.id === key);

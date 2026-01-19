@@ -2,10 +2,17 @@ import { get, onDisconnect, onValue, ref, remove, runTransaction, set, update } 
 
 import { getDb } from "@/firebase";
 
+// Generate a 4-digit string for fallback usage.
 function rand4Digits() {
   return String(Math.floor(1000 + Math.random() * 9000));
 }
 
+/**
+ * Allocate a 4-digit room id using a shared counter to reduce collisions.
+ * @param path Firebase path prefix for the room collection.
+ * @param tries Max attempts before giving up.
+ * @returns The allocated room id, or an empty string on failure.
+ */
 export async function generateRoomId(path: string, tries = 200) {
   const db = getDb();
   if (!db) return "";
@@ -28,6 +35,13 @@ export async function generateRoomId(path: string, tries = 200) {
   return "";
 }
 
+/**
+ * Create a room record with optional extra data merged into the base.
+ * @param path Firebase path prefix for the room collection.
+ * @param base Base payload for the room.
+ * @param extra Optional custom data to merge.
+ * @returns The created room id, or an empty string on failure.
+ */
 export async function createRoom(
   path: string,
   base: Record<string, unknown>,
@@ -41,12 +55,28 @@ export async function createRoom(
   return id;
 }
 
+/**
+ * Subscribe to a room and receive updates.
+ * @param path Firebase path prefix for the room collection.
+ * @param roomId Room id to subscribe to.
+ * @param cb Callback invoked with the room value.
+ * @returns The unsubscribe function or null if subscription fails.
+ */
 export function subscribeRoom(path: string, roomId: string, cb: (value: any) => void) {
   const db = getDb();
   if (!db || !roomId) return null;
   return onValue(ref(db, `${path}/${roomId}`), (snap) => cb(snap.val()));
 }
 
+/**
+ * Track player presence and mark offline on disconnect.
+ * @param path Firebase path prefix for the room collection.
+ * @param roomId Room id to update.
+ * @param playerKey Player key (slot).
+ * @param onlinePayload Data written when online.
+ * @param offlinePayload Data written on disconnect.
+ * @returns The onDisconnect handler or null if not available.
+ */
 export function setupPresence(
   path: string,
   roomId: string,
@@ -63,6 +93,14 @@ export function setupPresence(
   return handler;
 }
 
+/**
+ * Atomically claim a player slot if it is free or left.
+ * @param path Firebase path prefix for the room collection.
+ * @param roomId Room id to update.
+ * @param playerKey Player key (slot).
+ * @param payload Data to write into the player slot.
+ * @returns True when the slot is claimed successfully.
+ */
 export async function claimPlayer(
   path: string,
   roomId: string,
@@ -82,6 +120,11 @@ export async function claimPlayer(
   return !!res.committed;
 }
 
+/**
+ * Refresh lastActive timestamp to keep the room alive.
+ * @param path Firebase path prefix for the room collection.
+ * @param roomId Room id to update.
+ */
 export async function touchRoom(path: string, roomId: string) {
   const db = getDb();
   if (!db || !roomId) return;
@@ -92,6 +135,13 @@ export async function touchRoom(path: string, roomId: string) {
   }
 }
 
+/**
+ * Delete the room when all provided player slots are marked left.
+ * @param path Firebase path prefix for the room collection.
+ * @param roomId Room id to check.
+ * @param playerKeys Player slots that must all be left.
+ * @returns True when the room is removed or missing.
+ */
 export async function cleanupIfAllLeft(path: string, roomId: string, playerKeys: string[]) {
   const db = getDb();
   if (!db || !roomId) return false;

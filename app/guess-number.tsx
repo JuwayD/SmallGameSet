@@ -30,10 +30,16 @@ const HEARTBEAT_MS = 1000 * 30;
 
 const HELP_TEXT = "目标：猜中对方密数。\n\n规则：\n- 创建房间后分享 4 位房间号，另一位加入。\n- 双方设置密数后开始对局，轮流猜测对方密数。\n- 猜中即胜，未加入无法开始。";
 
+/**
+ * Check that a string is exactly len digits.
+ */
 function isDigits(str: string, len: number) {
   return new RegExp(`^\\d{${len}}$`).test(str);
 }
 
+/**
+ * Count exact-position hits for a guess.
+ */
 function hitsCount(secret: string, guess: string) {
   let hits = 0;
   for (let i = 0; i < secret.length; i++) {
@@ -46,6 +52,9 @@ function hitsCount(secret: string, guess: string) {
 
 /** ================= UI ================= */
 
+/**
+ * Shared button component with variants.
+ */
 function Btn({ title, onPress, disabled, kind, small }: any) {
   return (
     <TouchableOpacity
@@ -66,6 +75,9 @@ function Btn({ title, onPress, disabled, kind, small }: any) {
   );
 }
 
+/**
+ * Choice button used for toggles.
+ */
 function ChoiceBtn({ title, onPress, active }: any) {
   return (
     <TouchableOpacity
@@ -81,6 +93,9 @@ function ChoiceBtn({ title, onPress, active }: any) {
 
 /** ================= Main ================= */
 
+/**
+ * Screen component for the guess-number game.
+ */
 export default function GuessNumber() {
   const [roomId, setRoomId] = useState("");
   const [joinId, setJoinId] = useState("");
@@ -111,6 +126,9 @@ export default function GuessNumber() {
   const canHostConfigure =
     isHost && (room?.status === "configuring" || room?.status === "over");
 
+  /**
+   * Reset local state when leaving or cleanup happens.
+   */
   function resetLocal() {
     setRoomId("");
     setJoinId("");
@@ -227,6 +245,9 @@ export default function GuessNumber() {
   /** ================== Actions ================== */
 
   /** 创建房间：4位数字+避碰撞 */
+  /**
+   * Create a new room with default settings.
+   */
   async function createRoom() {
     const base = {
       status: "configuring",
@@ -255,6 +276,9 @@ export default function GuessNumber() {
   }
 
   /** 加入房间：原子占位B（防多人/重复进入） */
+  /**
+   * Join a room as player B if available.
+   */
   async function joinRoom() {
     const db = getDb();
     if (!db) return;
@@ -295,6 +319,9 @@ export default function GuessNumber() {
   }
 
   /** 仅设置自己的密数（明文只显示自己） */
+  /**
+   * Save the current player's secret.
+   */
   async function confirmSecret() {
     const db = getDb();
     if (!db || !roomId || !me) return;
@@ -312,6 +339,9 @@ export default function GuessNumber() {
   }
 
   /** 房主：设置位数（弹框） */
+  /**
+   * Host sets the digit length for this room.
+   */
   async function applyDigits(n: number) {
     const db = getDb();
     if (!db || !isHost) return;
@@ -320,6 +350,9 @@ export default function GuessNumber() {
   }
 
   /** 房主：设置先手（弹框） */
+  /**
+   * Host sets which player starts the round.
+   */
   async function applyStarter(s: "A" | "B") {
     const db = getDb();
     if (!db || !isHost) return;
@@ -328,6 +361,9 @@ export default function GuessNumber() {
   }
 
   /** 房主：开始本轮 */
+  /**
+   * Start a round after both secrets are ready.
+   */
   async function startRound() {
     const db = getDb();
     if (!db || !isHost) return;
@@ -350,6 +386,9 @@ export default function GuessNumber() {
   }
 
   /** 提交猜测：transaction 追加历史，避免并发覆盖 */
+  /**
+   * Submit a guess and resolve win/turn logic.
+   */
   async function submitGuess() {
     const db = getDb();
     if (!db || !myTurn) return;
@@ -389,6 +428,9 @@ export default function GuessNumber() {
   }
 
   /** 结束后重开新一轮 */
+  /**
+   * Reset room state for a new round.
+   */
   async function restartNewRound() {
     const db = getDb();
     if (!db || !roomId) return;
@@ -417,6 +459,9 @@ export default function GuessNumber() {
   }
 
   /** 退房：标记 left=true；监听会处理删房 */
+  /**
+   * Leave the room and cleanup presence.
+   */
   async function leaveRoom() {
     const db = getDb();
     if (!db || !roomId || !me) {
