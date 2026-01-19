@@ -5,3 +5,4 @@
 ## 已有模块
 
 - [房间系统（Room）](ROOM.md)
+- [聊天系统（Chat）](CHAT.md)
