@@ -11,7 +11,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 import { getDb } from '@/firebase';
-import { claimPlayer, cleanupIfAllLeft, generateRoomId, setupPresence, touchRoom } from '@/utils/room';
+import { claimPlayer, cleanupIfAllLeft, createRoom as createRoomRecord, setupPresence, touchRoom } from '@/utils/room';
 
 const HELP_TEXT = `庄家模式：
 - 一名玩家坐庄，设置场地（大方块/圆盘）并放置任意数量旗子。
@@ -235,16 +235,8 @@ export default function MineGuessScreen() {
   }, [roomId, room, me]);
 
   async function createRoom() {
-    const db = getDb();
-    if (!db) return;
     if (!me) {
       alert('请先选择身份');
-      return;
-    }
-
-    const id = await generateRoomId('mineRooms');
-    if (!id) {
-      alert('房间号生成失败');
       return;
     }
 
@@ -258,36 +250,41 @@ export default function MineGuessScreen() {
       result: '',
     };
 
-    if (roomMode === 'pk') {
-      await set(ref(db, `mineRooms/${id}`), {
-        ...base,
-        mode: 'pk',
-        turn: 'A',
-        players: {
-          A: { left: me !== 'A' },
-          B: { left: me !== 'B' },
-        },
-        fields: {
-          A: { gridWidth: 8, gridHeight: 8, flags: [], confirmed: false },
-          B: { gridWidth: 8, gridHeight: 8, flags: [], confirmed: false },
-        },
-        guessed: { A: [], B: [] },
-        scores: { A: 0, B: 0 },
-      });
-    } else {
-      await set(ref(db, `mineRooms/${id}`), {
-        ...base,
-        mode: 'house',
-        gridWidth: 8,
-        gridHeight: 8,
-        players: {
-          host: { left: me !== 'host' },
-          player: { left: me !== 'player' },
-        },
-        flags: [],
-        guessed: [],
-        scores: { host: 0, player: 0 },
-      });
+    const payload =
+      roomMode === 'pk'
+        ? {
+            ...base,
+            mode: 'pk',
+            turn: 'A',
+            players: {
+              A: { left: me !== 'A' },
+              B: { left: me !== 'B' },
+            },
+            fields: {
+              A: { gridWidth: 8, gridHeight: 8, flags: [], confirmed: false },
+              B: { gridWidth: 8, gridHeight: 8, flags: [], confirmed: false },
+            },
+            guessed: { A: [], B: [] },
+            scores: { A: 0, B: 0 },
+          }
+        : {
+            ...base,
+            mode: 'house',
+            gridWidth: 8,
+            gridHeight: 8,
+            players: {
+              host: { left: me !== 'host' },
+              player: { left: me !== 'player' },
+            },
+            flags: [],
+            guessed: [],
+            scores: { host: 0, player: 0 },
+          };
+
+    const id = await createRoomRecord('mineRooms', payload);
+    if (!id) {
+      alert('房间号生成失败');
+      return;
     }
 
     setRoomId(id);

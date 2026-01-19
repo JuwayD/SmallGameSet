@@ -6,10 +6,9 @@ import {
   ref,
   remove,
   runTransaction,
-  set,
   update,
 } from "firebase/database";
-import { claimPlayer, cleanupIfAllLeft, generateRoomId, setupPresence, touchRoom } from "@/utils/room";
+import { claimPlayer, cleanupIfAllLeft, createRoom as createRoomRecord, setupPresence, touchRoom } from "@/utils/room";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Modal,
@@ -229,16 +228,7 @@ export default function GuessNumber() {
 
   /** 创建房间：4位数字+避碰撞 */
   async function createRoom() {
-    const db = getDb();
-    if (!db) return;
-
-    const id = await generateRoomId("rooms");
-    if (!id) {
-      alert("房间号生成失败");
-      return;
-    }
-
-    await set(ref(db, `rooms/${id}`), {
+    const base = {
       status: "configuring",
       digits: 4,
       starter: "A",
@@ -249,11 +239,16 @@ export default function GuessNumber() {
       lastActive: Date.now(),
       players: {
         A: { secret: "", left: false },
-        // ✅ 修复点1：B 未进入，默认 left=true
         B: { secret: "", left: true },
       },
       guesses: [],
-    });
+    };
+
+    const id = await createRoomRecord("rooms", base);
+    if (!id) {
+      alert("房间号生成失败");
+      return;
+    }
 
     setRoomId(id);
     setMe("A");

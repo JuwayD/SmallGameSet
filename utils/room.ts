@@ -1,4 +1,4 @@
-import { get, onDisconnect, onValue, ref, remove, runTransaction, update } from "firebase/database";
+import { get, onDisconnect, onValue, ref, remove, runTransaction, set, update } from "firebase/database";
 
 import { getDb } from "@/firebase";
 
@@ -6,16 +6,39 @@ function rand4Digits() {
   return String(Math.floor(1000 + Math.random() * 9000));
 }
 
-export async function generateRoomId(path: string, tries = 30) {
+export async function generateRoomId(path: string, tries = 200) {
   const db = getDb();
   if (!db) return "";
 
+  const counterKey = path.replace(/[^A-Za-z0-9_]/g, "_");
+
   for (let i = 0; i < tries; i++) {
-    const id = rand4Digits();
+    const res = await runTransaction(ref(db, `roomCounters/${counterKey}`), (cur) => {
+      if (typeof cur !== "number") return 0;
+      return cur + 1;
+    });
+
+    if (!res.committed) continue;
+    const seq = res.snapshot.val() || 0;
+    const id = String(1000 + (seq % 9000));
+
     const snap = await get(ref(db, `${path}/${id}`));
     if (!snap.exists()) return id;
   }
   return "";
+}
+
+export async function createRoom(
+  path: string,
+  base: Record<string, unknown>,
+  extra: Record<string, unknown> = {}
+) {
+  const db = getDb();
+  if (!db) return "";
+  const id = await generateRoomId(path);
+  if (!id) return "";
+  await set(ref(db, `${path}/${id}`), { ...base, ...extra });
+  return id;
 }
 
 export function subscribeRoom(path: string, roomId: string, cb: (value: any) => void) {
