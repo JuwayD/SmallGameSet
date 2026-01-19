@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'expo-router';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { Fonts } from '@/constants/theme';
@@ -13,7 +13,29 @@ const games = [
     badge: '1A2B',
     desc: '双人对战猜对方密数，逻辑与节奏并重。',
     meta: ['1-2人', '对战', '逻辑'],
+    rules: `玩法：
+- 创建房间后分享 4 位房间号，另一位加入。
+- 双方设置密数后开始对局，轮流猜测对方密数。
+- 猜中即胜。`,
     href: '/guess-number',
+    enabled: true,
+  },
+  {
+    id: 'mine-guess',
+    title: '猜地雷',
+    badge: 'Mine',
+    desc: '盆子里埋雷，猜中安全旗得分，踩雷即止。',
+    meta: ['1-2人', '竞猜', '博弈'],
+    rules: `庄家模式：
+- 一名玩家坐庄，设置场地（大方块/圆盘）并放置任意数量旗子。
+- 庄家指定若干旗子下有地雷。
+- 猜方依次选择安全旗，猜对得分，踩雷结束本轮。
+- 入场积分与猜对积分由庄家设定。
+
+双人PK：
+- 互为庄家，轮流摆旗与猜测，累计积分决胜。`,
+    href: '/mine-guess',
+    enabled: true,
   },
 ];
 
@@ -40,6 +62,9 @@ export default function LobbyScreen() {
           metaBorder: 'rgba(255,255,255,0.12)',
           buttonBg: '#fbbf24',
           buttonBorder: '#f59e0b',
+          helpBg: 'rgba(255,255,255,0.08)',
+          helpBorder: 'rgba(255,255,255,0.2)',
+          helpText: '#e5e7eb',
         }
       : {
           background: '#f6efe6',
@@ -58,7 +83,19 @@ export default function LobbyScreen() {
           metaBorder: '#f1c99c',
           buttonBg: '#f59e0b',
           buttonBorder: '#e07a10',
+          helpBg: 'rgba(255,255,255,0.8)',
+          helpBorder: '#f1c99c',
+          helpText: '#7a5b3a',
         };
+
+  const playableCount = games.filter((game) => game.enabled).length;
+  const [helpVisible, setHelpVisible] = useState(false);
+  const [helpGame, setHelpGame] = useState<(typeof games)[number] | null>(null);
+
+  const openHelp = (game: (typeof games)[number]) => {
+    setHelpGame(game);
+    setHelpVisible(true);
+  };
 
   return (
     <View style={merge(styles.root, { backgroundColor: palette.background })}>
@@ -91,7 +128,9 @@ export default function LobbyScreen() {
               borderColor: palette.pillBorder,
             })}
           >
-            <Text style={merge(styles.pillText, { color: palette.pillText })}>当前 1 款可玩</Text>
+            <Text style={merge(styles.pillText, { color: palette.pillText })}>
+              当前 {playableCount} 款可玩
+            </Text>
           </View>
         </View>
 
@@ -105,13 +144,24 @@ export default function LobbyScreen() {
                 <ThemedText type="subtitle" style={styles.cardTitle}>
                   {game.title}
                 </ThemedText>
-                <View
-                  style={merge(styles.badge, {
-                    backgroundColor: palette.badgeBg,
-                    borderColor: palette.badgeBorder,
-                  })}
-                >
-                  <Text style={merge(styles.badgeText, { color: palette.badgeText })}>{game.badge}</Text>
+                <View style={styles.cardTopRight}>
+                  <View
+                    style={merge(styles.badge, {
+                      backgroundColor: palette.badgeBg,
+                      borderColor: palette.badgeBorder,
+                    })}
+                  >
+                    <Text style={merge(styles.badgeText, { color: palette.badgeText })}>{game.badge}</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={merge(styles.helpBtn, {
+                      backgroundColor: palette.helpBg,
+                      borderColor: palette.helpBorder,
+                    })}
+                    onPress={() => openHelp(game)}
+                  >
+                    <Text style={merge(styles.helpBtnText, { color: palette.helpText })}>帮助</Text>
+                  </TouchableOpacity>
                 </View>
               </View>
               <ThemedText style={merge(styles.cardDesc, { color: palette.textMuted })}>{game.desc}</ThemedText>
@@ -128,16 +178,28 @@ export default function LobbyScreen() {
                   </View>
                 ))}
               </View>
-              <Link href={game.href} asChild>
-                <TouchableOpacity
-                  style={merge(styles.enterBtn, {
-                    backgroundColor: palette.buttonBg,
-                    borderColor: palette.buttonBorder,
-                  })}
+              {game.enabled ? (
+                <Link href={game.href} asChild>
+                  <TouchableOpacity
+                    style={merge(styles.enterBtn, {
+                      backgroundColor: palette.buttonBg,
+                      borderColor: palette.buttonBorder,
+                    })}
+                  >
+                    <Text style={styles.enterText}>进入游戏</Text>
+                  </TouchableOpacity>
+                </Link>
+              ) : (
+                <View
+                  style={merge(
+                    styles.enterBtn,
+                    styles.enterBtnDisabled,
+                    { backgroundColor: palette.metaBg, borderColor: palette.metaBorder }
+                  )}
                 >
-                  <Text style={styles.enterText}>进入游戏</Text>
-                </TouchableOpacity>
-              </Link>
+                  <Text style={merge(styles.enterText, { color: palette.textMuted })}>即将开放</Text>
+                </View>
+              )}
             </View>
           ))}
 
@@ -194,6 +256,35 @@ export default function LobbyScreen() {
           </View>
         </View>
       </ScrollView>
+
+      <Modal transparent visible={helpVisible} animationType="fade" onRequestClose={() => setHelpVisible(false)}>
+        <View style={styles.modalMask}>
+          <View
+            style={merge(styles.modalCard, {
+              backgroundColor: palette.cardBg,
+              borderColor: palette.cardBorder,
+            })}
+          >
+            <View style={styles.modalHeader}>
+              <ThemedText type="subtitle" style={styles.modalTitle}>
+                {helpGame ? `${helpGame.title} 规则` : '规则'}
+              </ThemedText>
+              <TouchableOpacity
+                style={merge(styles.modalClose, {
+                  backgroundColor: palette.helpBg,
+                  borderColor: palette.helpBorder,
+                })}
+                onPress={() => setHelpVisible(false)}
+              >
+                <Text style={merge(styles.modalCloseText, { color: palette.helpText })}>关闭</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={merge(styles.modalBody, { color: palette.textMuted })}>
+              {helpGame?.rules ?? ''}
+            </Text>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -266,6 +357,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  cardTopRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   cardTitle: {
     fontSize: 18,
   },
@@ -279,6 +375,16 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     letterSpacing: 1,
+  },
+  helpBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  helpBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   cardDesc: {
     marginTop: 10,
@@ -312,6 +418,43 @@ const styles = StyleSheet.create({
   enterText: {
     color: '#1a1308',
     fontWeight: '700',
+    fontSize: 14,
+  },
+  modalMask: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 520,
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 16,
+    gap: 12,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  modalTitle: {
+    fontSize: 18,
+  },
+  modalClose: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  modalCloseText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  modalBody: {
+    lineHeight: 22,
     fontSize: 14,
   },
 });

@@ -9,7 +9,7 @@ import {
   set,
   update,
 } from "firebase/database";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Modal,
   ScrollView,
@@ -19,6 +19,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useNavigation } from "@react-navigation/native";
 import { getDb } from "@/firebase";
 
 /** ================= Utils ================= */
@@ -26,6 +27,8 @@ import { getDb } from "@/firebase";
 const ROOM_TTL_MS = 1000 * 60 * 30;
 const ROOM_HARD_TTL_MS = 1000 * 60 * 120;
 const HEARTBEAT_MS = 1000 * 30;
+
+const HELP_TEXT = "目标：猜中对方密数。\n\n规则：\n- 创建房间后分享 4 位房间号，另一位加入。\n- 双方设置密数后开始对局，轮流猜测对方密数。\n- 猜中即胜，未加入无法开始。";
 
 function rand4Digits() {
   // 1000-9999
@@ -91,6 +94,10 @@ export default function GuessNumber() {
 
   const [secret, setSecret] = useState("");
   const [guess, setGuess] = useState("");
+  const [helpVisible, setHelpVisible] = useState(false);
+  const navigation = useNavigation();
+  const leavingRef = useRef(false);
+  const disconnectRef = useRef<ReturnType<typeof onDisconnect> | null>(null);
 
   // 弹框
   const [digitsModal, setDigitsModal] = useState(false);
@@ -191,12 +198,19 @@ export default function GuessNumber() {
     const myRef = ref(db, `rooms/${roomId}/players/${me}`);
 
     // 断线/崩溃/关页面：自动 left
-    onDisconnect(myRef).update({ left: true, secret: "" });
+    const handler = onDisconnect(myRef);
+    handler.update({ left: true, secret: "" });
+    disconnectRef.current = handler;
 
     // 进入即标记在线
     update(myRef, { left: false });
 
-    // 注意：onDisconnect 不需要 cleanup
+    return () => {
+      handler.cancel();
+      if (disconnectRef.current === handler) {
+        disconnectRef.current = null;
+      }
+    };
   }, [roomId, me]);
 
   /** -------- 心跳更新活跃时间 -------- */
@@ -223,7 +237,11 @@ export default function GuessNumber() {
 
     if (aLeft && bLeft) {
       const db = getDb();
-      if (db) remove(ref(db, `rooms/${roomId}`)).catch(() => {});
+      if (db) {
+        disconnectRef.current?.cancel();
+        disconnectRef.current = null;
+        remove(ref(db, `rooms/${roomId}`)).catch(() => {});
+      }
       resetLocal();
     }
   }, [roomId, room]);
@@ -445,6 +463,9 @@ export default function GuessNumber() {
       secret: "",
     });
 
+    disconnectRef.current?.cancel();
+    disconnectRef.current = null;
+
     // 退房后立即检查双方是否都离开，避免因卸载监听错过删除
     try {
       const snap = await get(ref(db, `rooms/${roomId}`));
@@ -459,11 +480,31 @@ export default function GuessNumber() {
     resetLocal();
   }
 
+  useEffect(() => {
+    const sub = navigation.addListener('beforeRemove', (e) => {
+      if (leavingRef.current || !roomId || !me) return;
+      e.preventDefault();
+      leavingRef.current = true;
+      Promise.resolve(leaveRoom())
+        .catch(() => {})
+        .finally(() => {
+          navigation.dispatch(e.data.action);
+        });
+    });
+
+    return sub;
+  }, [navigation, roomId, me]);
+
   /** ================== Render ================== */
 
   return (
     <ScrollView style={styles.root}>
-      <Text style={styles.title}>联机猜数</Text>
+      <View style={styles.headerRow}>
+        <Text style={styles.title}>联机猜数</Text>
+        <TouchableOpacity style={styles.helpBtn} onPress={() => setHelpVisible(true)}>
+          <Text style={styles.helpBtnText}>帮助</Text>
+        </TouchableOpacity>
+      </View>
 
       {!roomId && (
         <View style={styles.card}>
@@ -623,6 +664,22 @@ export default function GuessNumber() {
         </View>
       </Modal>
 
+      {/* 规则弹框 */}
+      <Modal
+        transparent
+        visible={helpVisible}
+        animationType="fade"
+        onRequestClose={() => setHelpVisible(false)}
+      >
+        <View style={styles.modalMask}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>游戏规则</Text>
+            <Text style={styles.helpText}>{HELP_TEXT}</Text>
+            <Btn title="关闭" kind="ghost" onPress={() => setHelpVisible(false)} />
+          </View>
+        </View>
+      </Modal>
+
       {/* 先手弹框 */}
       <Modal
         transparent
@@ -657,7 +714,10 @@ export default function GuessNumber() {
 
 const styles = StyleSheet.create({
   root: { backgroundColor: "#111", padding: 16, flex: 1 },
-  title: { color: "#fff", fontSize: 20, fontWeight: "800", marginBottom: 12 },
+  headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
+  title: { color: "#fff", fontSize: 20, fontWeight: "800" },
+  helpBtn: { backgroundColor: "#2a2a2a", borderWidth: 1, borderColor: "#3a3a3a", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999 },
+  helpBtnText: { color: "#ddd", fontWeight: "700", fontSize: 12 },
   card: { backgroundColor: "#1b1b1b", padding: 14, borderRadius: 12, gap: 10 },
   input: {
     backgroundColor: "#2a2a2a",
@@ -699,6 +759,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   modalTitle: { color: "#fff", fontWeight: "800", fontSize: 16 },
+  helpText: { color: "#ddd", lineHeight: 22 },
   choiceGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   choiceRow: { flexDirection: "row", gap: 10 },
 
