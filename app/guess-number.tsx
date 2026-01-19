@@ -9,6 +9,7 @@ import {
   set,
   update,
 } from "firebase/database";
+import { claimPlayer, cleanupIfAllLeft, generateRoomId, setupPresence, touchRoom } from "@/utils/room";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Modal,
@@ -29,11 +30,6 @@ const ROOM_HARD_TTL_MS = 1000 * 60 * 120;
 const HEARTBEAT_MS = 1000 * 30;
 
 const HELP_TEXT = "目标：猜中对方密数。\n\n规则：\n- 创建房间后分享 4 位房间号，另一位加入。\n- 双方设置密数后开始对局，轮流猜测对方密数。\n- 猜中即胜，未加入无法开始。";
-
-function rand4Digits() {
-  // 1000-9999
-  return String(Math.floor(1000 + Math.random() * 9000));
-}
 
 function isDigits(str: string, len: number) {
   return new RegExp(`^\\d{${len}}$`).test(str);
@@ -116,16 +112,6 @@ export default function GuessNumber() {
   const canHostConfigure =
     isHost && (room?.status === "configuring" || room?.status === "over");
 
-  async function touchRoom(id: string) {
-    const db = getDb();
-    if (!db || !id) return;
-    try {
-      await update(ref(db, `rooms/${id}`), { lastActive: Date.now() });
-    } catch {
-      // ignore
-    }
-  }
-
   function resetLocal() {
     setRoomId("");
     setJoinId("");
@@ -195,18 +181,11 @@ export default function GuessNumber() {
     const db = getDb();
     if (!db) return;
 
-    const myRef = ref(db, `rooms/${roomId}/players/${me}`);
-
-    // 断线/崩溃/关页面：自动 left
-    const handler = onDisconnect(myRef);
-    handler.update({ left: true, secret: "" });
-    disconnectRef.current = handler;
-
-    // 进入即标记在线
-    update(myRef, { left: false });
+    const handler = setupPresence("rooms", roomId, me, { left: false }, { left: true, secret: "" });
+    if (handler) disconnectRef.current = handler;
 
     return () => {
-      handler.cancel();
+      handler?.cancel();
       if (disconnectRef.current === handler) {
         disconnectRef.current = null;
       }
@@ -219,7 +198,7 @@ export default function GuessNumber() {
     let alive = true;
     const tick = async () => {
       if (!alive) return;
-      await touchRoom(roomId);
+      await touchRoom("rooms", roomId);
     };
     tick();
     const timer = setInterval(tick, HEARTBEAT_MS);
@@ -240,7 +219,7 @@ export default function GuessNumber() {
       if (db) {
         disconnectRef.current?.cancel();
         disconnectRef.current = null;
-        remove(ref(db, `rooms/${roomId}`)).catch(() => {});
+        cleanupIfAllLeft("rooms", roomId, ["A", "B"]).catch(() => {});
       }
       resetLocal();
     }
@@ -253,15 +232,7 @@ export default function GuessNumber() {
     const db = getDb();
     if (!db) return;
 
-    let id = "";
-    for (let i = 0; i < 30; i++) {
-      const c = rand4Digits();
-      const snap = await get(ref(db, `rooms/${c}`));
-      if (!snap.exists()) {
-        id = c;
-        break;
-      }
-    }
+    const id = await generateRoomId("rooms");
     if (!id) {
       alert("房间号生成失败");
       return;
@@ -342,7 +313,7 @@ export default function GuessNumber() {
       secret,
       left: false,
     });
-    touchRoom(roomId);
+    touchRoom("rooms", roomId);
   }
 
   /** 房主：设置位数（弹框） */
@@ -380,7 +351,7 @@ export default function GuessNumber() {
       turn: starter,
       winner: "",
     });
-    touchRoom(roomId);
+    touchRoom("rooms", roomId);
   }
 
   /** 提交猜测：transaction 追加历史，避免并发覆盖 */
@@ -408,7 +379,7 @@ export default function GuessNumber() {
       arr.push(record);
       return arr;
     });
-    touchRoom(roomId);
+    touchRoom("rooms", roomId);
 
     if (guess === oppSecret) {
       await update(ref(db, `rooms/${roomId}`), {
@@ -447,7 +418,7 @@ export default function GuessNumber() {
 
     setSecret("");
     setGuess("");
-    touchRoom(roomId);
+    touchRoom("rooms", roomId);
   }
 
   /** 退房：标记 left=true；监听会处理删房 */
@@ -466,16 +437,7 @@ export default function GuessNumber() {
     disconnectRef.current?.cancel();
     disconnectRef.current = null;
 
-    // 退房后立即检查双方是否都离开，避免因卸载监听错过删除
-    try {
-      const snap = await get(ref(db, `rooms/${roomId}`));
-      const v = snap.val();
-      if (v?.players?.A?.left && v?.players?.B?.left) {
-        await remove(ref(db, `rooms/${roomId}`));
-      }
-    } catch {
-      // ignore cleanup errors
-    }
+    await cleanupIfAllLeft("rooms", roomId, ["A", "B"]).catch(() => {});
 
     resetLocal();
   }
