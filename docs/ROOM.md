@@ -2,217 +2,96 @@
 
 本文档描述房间系统的公共能力与接入方式。
 
-## 模块位置
+## 📍 模块位置
 
 - `utils/room.ts`
 
-## 功能概览
+## 🚀 业务流程
 
-- 生成房间号并降低并发碰撞
-- 创建房间并合并自定义数据
-- 订阅房间数据变化
-- 在线/离线状态维护
-- 争抢/占用玩家位
-- 房间活跃时间刷新
-- 无人时自动清理
+### 1. 房间创建流程
+```mermaid
+sequenceDiagram
+    participant User as 玩家/房主
+    participant SDK as room.ts
+    participant DB as Firebase RTDB
 
-## API 说明
-
-### generateRoomId(path, tries?)
-
-生成 4 位房间号，内部使用共享计数器 `roomCounters/<path>` 递增，降低并发碰撞。生成后会检查该 id 是否已存在，存在则继续尝试。
-
-参数：
-- `path`:房间集合路径前缀，例如 `rooms`、`mineRooms`。
-- `tries`（可选）:最大尝试次数，默认 200。
-
-返回：
-- `string`:成功返回 4 位房间号（如 `1234`），失败返回空字符串。
-
-使用方式：
-- `path` 会被映射为计数器键（非字母数字字符会被 `_` 替换）。
-
-示例：
-```ts
-import { generateRoomId } from '@/utils/room';
-
-const id = await generateRoomId('rooms');
-if (!id) throw new Error('房间号生成失败');
+    User->>SDK: createRoom(path, base, extra)
+    SDK->>SDK: generateRoomId()
+    SDK->>DB: 检查 ID 是否占用 (transaction)
+    SDK->>DB: 写入房间初始数据
+    DB-->>SDK: 写入成功
+    SDK-->>User: 返回 roomId
 ```
 
-### createRoom(path, base, extra?)
+### 2. 玩家占位流程
+```mermaid
+sequenceDiagram
+    participant User as 加入者
+    participant SDK as room.ts
+    participant DB as Firebase RTDB
 
-创建房间记录并合并自定义数据。内部会先调用 `generateRoomId` 生成 id，然后将 `base` 与 `extra` 合并写入。
-
-参数：
-- `path`:房间集合路径前缀。
-- `base`:房间基础结构（必填）。
-- `extra`（可选）:自定义扩展字段（默认 `{}`）。
-
-返回：
-- `string`:成功返回房间号，失败返回空字符串。
-
-使用方式：
-- `base` 建议包含统一字段：`status` / `createdAt` / `lastActive` / `players`。
-- `extra` 用于存放游戏自定义数据（例如 `gridWidth`、`hitScore`）。
-
-示例：
-```ts
-import { createRoom } from '@/utils/room';
-
-const base = {
-  status: 'setup',
-  createdAt: Date.now(),
-  lastActive: Date.now(),
-  players: { A: { left: false }, B: { left: true } },
-};
-
-const extra = {
-  mode: 'pk',
-  gridWidth: 8,
-  gridHeight: 8,
-};
-
-const id = await createRoom('mineRooms', base, extra);
-if (!id) throw new Error('创建失败');
+    User->>SDK: claimPlayer(roomId, playerKey)
+    SDK->>DB: 运行 Transaction
+    Note over DB: 检查位子是否为空 (left === true)
+    alt 位子可用
+        DB->>DB: 更新位子数据 (left = false)
+        DB-->>SDK: Transaction 成功
+        SDK-->>User: 返回 true
+    else 位子已占用
+        DB-->>SDK: Transaction 失败
+        SDK-->>User: 返回 false
+    end
 ```
 
-### subscribeRoom(path, roomId, cb)
+## 🛠 API 说明
 
-订阅房间数据变化，底层使用 `onValue`，每次变更都会触发回调。
+### `generateRoomId(path, tries?)`
 
-参数：
-- `path`:房间集合路径前缀。
-- `roomId`:房间号。
-- `cb`:回调函数，参数是房间数据（可能为 `null`）。
+生成 4 位房间号，内部使用共享计数器降低碰撞率。
 
-返回：
-- `() => void | null`:取消订阅函数；如果 db 不可用或参数不完整则返回 `null`。
+### `createRoom(path, base, extra?)`
 
-使用方式：
-- 当房间被删除时，`cb` 会收到 `null`。
+创建房间。`base` 建议包含：`status`, `createdAt`, `players`。`extra` 存放游戏配置。
 
-示例：
+### `claimPlayer(path, roomId, playerKey, payload)`
+
+**原子占位**。防止多个玩家同时抢占同一个坑位。
+
+---
+
+## ⚠️ 最佳实践与错误处理
+
+### 离线处理 (Presence)
+> [!IMPORTANT]
+> 必须在 `useEffect` 中正确清理 `setupPresence` 返回的句柄，否则可能导致状态不准确。
+
 ```ts
-import { subscribeRoom } from '@/utils/room';
+useEffect(() => {
+  const handler = setupPresence('rooms', roomId, 'A', { left: false }, { left: true });
+  return () => {
+    handler?.cancel(); // 页面卸载时取消断线监听
+  };
+}, []);
+```
 
-const unsub = subscribeRoom('rooms', roomId, (room) => {
-  if (!room) {
-    setRoom(null);
-    return;
+### 频繁更新
+如果你的游戏需要极高频（如每秒 30 次）更新数据，请考虑将高频数据放在 `extra/sync` 下，并减少不必要的 `onValue` 全量监听。
+
+### 错误捕获
+虽然 `room.ts` 内部处理了大部分异常，但建议在 UI 层包装：
+```ts
+try {
+  const id = await createRoom(...);
+  if (!id) {
+    // 处理生成失败（如网络问题）
+    showError("创建房间失败，请检查网络");
   }
-  setRoom(room);
-});
-
-return () => {
-  unsub?.();
-};
+} catch (e) {
+  console.error(e);
+}
 ```
 
-### setupPresence(path, roomId, playerKey, onlinePayload, offlinePayload)
+## 🔗 参考实现
 
-处理玩家在线/离线状态，调用 `onDisconnect` 在断线时写入离线字段。
-
-参数：
-- `path`:房间集合路径前缀。
-- `roomId`:房间号。
-- `playerKey`:玩家位（如 `A`/`B`、`host`/`player`）。
-- `onlinePayload`:在线时写入的数据。
-- `offlinePayload`:断线时写入的数据。
-
-返回：
-- `OnDisconnect | null`:句柄，用于页面卸载时 `cancel()`。
-
-使用方式：
-- 通常在 `useEffect` 中注册，结束时取消。
-
-示例：
-```ts
-import { setupPresence } from '@/utils/room';
-
-const handler = setupPresence('rooms', roomId, me, { left: false }, { left: true });
-return () => {
-  handler?.cancel();
-};
-```
-
-### claimPlayer(path, roomId, playerKey, payload)
-
-使用事务原子占位，避免两个玩家同时进入同一位置。
-
-参数：
-- `path`:房间集合路径前缀。
-- `roomId`:房间号。
-- `playerKey`:玩家位（如 `A`/`B`、`host`/`player`）。
-- `payload`:成功占位时写入的数据。
-
-返回：
-- `boolean`:成功占位返回 `true`，否则 `false`。
-
-使用方式：
-- 当玩家位 `left === false` 时，视为已被占用，不会覆盖。
-
-示例：
-```ts
-import { claimPlayer } from '@/utils/room';
-
-const ok = await claimPlayer('rooms', roomId, 'B', { left: false, joinedAt: Date.now() });
-if (!ok) alert('玩家位已被占用');
-```
-
-### touchRoom(path, roomId)
-
-刷新房间 `lastActive`，用于后台清理与活跃判断。
-
-参数：
-- `path`:房间集合路径前缀。
-- `roomId`:房间号。
-
-返回：
-- `Promise<void>`。
-
-使用方式：
-- 可在心跳定时器里调用。
-
-示例：
-```ts
-import { touchRoom } from '@/utils/room';
-
-await touchRoom('rooms', roomId);
-```
-
-### cleanupIfAllLeft(path, roomId, playerKeys)
-
-当指定玩家位全部 `left === true` 时删除房间。
-
-参数：
-- `path`:房间集合路径前缀。
-- `roomId`:房间号。
-- `playerKeys`:需要检查的玩家位数组。
-
-返回：
-- `boolean`:已删除或房间不存在返回 `true`，否则 `false`。
-
-使用方式：
-- 一般在房间监听或离开逻辑中调用。
-
-示例：
-```ts
-import { cleanupIfAllLeft } from '@/utils/room';
-
-await cleanupIfAllLeft('rooms', roomId, ['A', 'B']);
-```
-
-## 接入流程（简版）
-
-1. 设计房间结构（基础字段 + 自定义字段）
-2. createRoom 创建房间（extra 放自定义字段）
-3. claimPlayer 抢占玩家位
-4. subscribeRoom/onValue 订阅房间
-5. setupPresence 处理在线/离线
-6. cleanupIfAllLeft 无人时清理
-
-## 参考实现
-
-- 猜数字：`app/guess-number.tsx`
-- 猜地雷：`app/mine-guess.tsx`
+- 🔢 猜数字：`app/guess-number.tsx`
+- 💣 猜地雷：`app/mine-guess.tsx`

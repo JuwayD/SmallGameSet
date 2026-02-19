@@ -1,50 +1,51 @@
-# Welcome to your Expo app 👋
+# SmallGameSet - 联机小游戏合集 🎮
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+这是一个基于 **Expo** 和 **Firebase** 构建的多人联机小游戏合集项目。旨在提供一套轻量、快速接入的联机游戏解决方案。
 
-## Get started
+## 🌟 项目特色
 
-1. Install dependencies
+- **实时联机**：基于 Firebase Realtime Database 实现极低延迟的数据同步。
+- **模块化设计**：封装了通用的房间系统和聊天系统，新游戏接入成本低。
+- **跨平台支持**：支持 Android、iOS 和 Web 端。
 
+## 🛠 技术栈
+
+- **框架**: [Expo](https://expo.dev) / [React Native](https://reactnative.dev)
+- **后端服务**: [Firebase Realtime Database](https://firebase.google.com/docs/database)
+- **开发语言**: [TypeScript](https://www.typescriptlang.org)
+- **样式**: NativeWind (Tailwind CSS for React Native)
+
+## 🎮 已实现游戏
+
+- 🔢 **猜数字** (`app/guess-number.tsx`): 经典的联机猜数字游戏。
+- 💣 **猜地雷** (`app/mine-guess.tsx`): 双人对战猜地雷位置，考验运气与策略。
+
+## 📖 开发者文档
+
+项目提供详细的模块接入文档，帮助你快速开发新功能：
+
+- 📂 [文档入口](docs/README.md)
+- 🏠 [房间系统接入指南](docs/ROOM.md)
+- 💬 [聊天系统接入指南](docs/CHAT.md)
+
+## 🚀 快速开始
+
+1. **安装依赖**
    ```bash
    npm install
    ```
 
-2. Start the app
+2. **配置 Firebase**
+   在根目录创建或修改 `firebase.js`，填入你的项目配置。
 
+3. **启动应用**
    ```bash
    npx expo start
    ```
 
-In the output, you'll find options to open the app in a
+---
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+## 加入社区
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
-```
-
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
-
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+- [Expo 官方文档](https://docs.expo.dev/)
+- [Firebase 官方文档](https://firebase.google.com/docs)

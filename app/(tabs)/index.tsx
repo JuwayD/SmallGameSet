@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
 import { Link } from 'expo-router';
+import React, { useState } from 'react';
 import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
@@ -37,6 +37,20 @@ const games = [
     href: '/mine-guess',
     enabled: true,
   },
+  {
+    id: 'stock-market',
+    title: '大空头：炒股大赛',
+    badge: 'Stock',
+    desc: '模拟股市风云，资产千万不是梦。支持多人对战与随机事件。',
+    meta: ['2人', '模拟', '博弈'],
+    rules: `玩法：
+- 创建房号后分享，对手加入。
+- 每回合可买入/卖出股票，15回合后禁止买入。
+- 每回合锁定后股价会波动，可能有随机事件。
+- 最终总资产高者胜。`,
+    href: '/stock-market',
+    enabled: true,
+  },
 ];
 
 const merge = (...styles: any[]) => StyleSheet.flatten(styles);
@@ -46,47 +60,47 @@ export default function LobbyScreen() {
   const palette =
     colorScheme === 'dark'
       ? {
-          background: '#101114',
-          cardBg: '#1b1c22',
-          cardBorder: '#2a2b33',
-          textMuted: '#b3b6bf',
-          glowA: 'rgba(251,191,36,0.18)',
-          glowB: 'rgba(251,113,133,0.16)',
-          pillBg: 'rgba(255,255,255,0.06)',
-          pillBorder: 'rgba(255,255,255,0.2)',
-          pillText: '#e5e7eb',
-          badgeBg: 'rgba(251,191,36,0.15)',
-          badgeBorder: 'rgba(251,191,36,0.45)',
-          badgeText: '#fbbf24',
-          metaBg: 'rgba(255,255,255,0.05)',
-          metaBorder: 'rgba(255,255,255,0.12)',
-          buttonBg: '#fbbf24',
-          buttonBorder: '#f59e0b',
-          helpBg: 'rgba(255,255,255,0.08)',
-          helpBorder: 'rgba(255,255,255,0.2)',
-          helpText: '#e5e7eb',
-        }
+        background: '#101114',
+        cardBg: '#1b1c22',
+        cardBorder: '#2a2b33',
+        textMuted: '#b3b6bf',
+        glowA: 'rgba(251,191,36,0.18)',
+        glowB: 'rgba(251,113,133,0.16)',
+        pillBg: 'rgba(255,255,255,0.06)',
+        pillBorder: 'rgba(255,255,255,0.2)',
+        pillText: '#e5e7eb',
+        badgeBg: 'rgba(251,191,36,0.15)',
+        badgeBorder: 'rgba(251,191,36,0.45)',
+        badgeText: '#fbbf24',
+        metaBg: 'rgba(255,255,255,0.05)',
+        metaBorder: 'rgba(255,255,255,0.12)',
+        buttonBg: '#fbbf24',
+        buttonBorder: '#f59e0b',
+        helpBg: 'rgba(255,255,255,0.08)',
+        helpBorder: 'rgba(255,255,255,0.2)',
+        helpText: '#e5e7eb',
+      }
       : {
-          background: '#f6efe6',
-          cardBg: '#fff9f2',
-          cardBorder: '#f2d9bf',
-          textMuted: '#6f6457',
-          glowA: 'rgba(246,191,65,0.3)',
-          glowB: 'rgba(239,143,130,0.25)',
-          pillBg: 'rgba(255,255,255,0.7)',
-          pillBorder: '#f1c99c',
-          pillText: '#7a5b3a',
-          badgeBg: 'rgba(251,191,36,0.2)',
-          badgeBorder: '#e0962d',
-          badgeText: '#a35617',
-          metaBg: 'rgba(255,255,255,0.7)',
-          metaBorder: '#f1c99c',
-          buttonBg: '#f59e0b',
-          buttonBorder: '#e07a10',
-          helpBg: 'rgba(255,255,255,0.8)',
-          helpBorder: '#f1c99c',
-          helpText: '#7a5b3a',
-        };
+        background: '#f6efe6',
+        cardBg: '#fff9f2',
+        cardBorder: '#f2d9bf',
+        textMuted: '#6f6457',
+        glowA: 'rgba(246,191,65,0.3)',
+        glowB: 'rgba(239,143,130,0.25)',
+        pillBg: 'rgba(255,255,255,0.7)',
+        pillBorder: '#f1c99c',
+        pillText: '#7a5b3a',
+        badgeBg: 'rgba(251,191,36,0.2)',
+        badgeBorder: '#e0962d',
+        badgeText: '#a35617',
+        metaBg: 'rgba(255,255,255,0.7)',
+        metaBorder: '#f1c99c',
+        buttonBg: '#f59e0b',
+        buttonBorder: '#e07a10',
+        helpBg: 'rgba(255,255,255,0.8)',
+        helpBorder: '#f1c99c',
+        helpText: '#7a5b3a',
+      };
 
   const playableCount = games.filter((game) => game.enabled).length;
   const [helpVisible, setHelpVisible] = useState(false);
